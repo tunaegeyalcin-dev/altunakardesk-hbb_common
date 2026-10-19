@@ -114,6 +114,31 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
+/// Altunakar: bilgisayar numarasi donanim kimliginden (Windows MachineGuid, macOS
+/// IOPlatformUUID, Linux machine-id) uretilir; ayni bilgisayar her kurulumda ayni
+/// 9 haneli numarayi alir. `deneme` yalniz ilk kayittaki cakismada artar.
+pub fn altunakar_id(uid: &[u8], deneme: u32) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"altunakardesk/id/v1\0");
+    h.update(uid);
+    h.update(deneme.to_be_bytes());
+    let d = h.finalize();
+    let mut sekiz = [0u8; 8];
+    sekiz.copy_from_slice(&d[..8]);
+    (100_000_000 + u64::from_be_bytes(sekiz) % 900_000_000).to_string()
+}
+
+/// Altunakar: merkez numarayi baska bir cihazda gorurse ne olacagi. Kilitli (bir kez
+/// kaydolmus) numara ASLA degismez (None); ilk kayitta sonraki deterministik aday.
+pub fn cakismada_yeni_aday(kilitli: bool, deneme: u32) -> Option<u32> {
+    if kilitli {
+        None
+    } else {
+        Some(deneme + 1)
+    }
+}
+
 pub const RENDEZVOUS_SERVERS: &[&str] = &["desk.tunayalcin.blog"];
 pub const RS_PUB_KEY: &str = "biJzP5KwSqUiAhgsys6bCn0nXIC+ImOe1A87N97DlMU=";
 
@@ -221,6 +246,14 @@ pub struct Config {
     key_pair: KeyPair, // sk, pk
     #[serde(default, deserialize_with = "deserialize_bool")]
     key_confirmed: bool,
+    // Altunakar: numara merkeze bir kez kaydolunca kilitlenir ve bir daha degismez.
+    // (Tablo alanindan, keys_confirmed'dan ONCE durmali: confy'nin toml'u tablodan
+    // sonra duz deger yazamaz, dosya hic kaydedilmez.)
+    #[serde(default, deserialize_with = "deserialize_bool")]
+    id_kilitli: bool,
+    // Altunakar: ilk kayitta cakisma olursa denenen deterministik aday sirasi.
+    #[serde(default)]
+    id_deneme: u32,
     #[serde(default, deserialize_with = "deserialize_hashmap_string_bool")]
     keys_confirmed: HashMap<String, bool>,
 }
@@ -635,7 +668,7 @@ impl Config {
         if !id_valid {
             log::warn!("ID is invalid, generating new one");
             for _ in 0..3 {
-                if let Some(id) = Config::gen_id() {
+                if let Some(id) = Config::gen_id(config.id_deneme) {
                     config.id = id;
                     store = true;
                     break;
@@ -1018,12 +1051,14 @@ impl Config {
     }
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    fn gen_id() -> Option<String> {
-        Self::get_auto_id()
+    fn gen_id(_deneme: u32) -> Option<String> {
+        Self::get_auto_id(0)
     }
 
+    // Altunakar: `deneme` cagirandan gelir; burada CONFIG'e DOKUNULMAZ (CONFIG ilk yuklenirken
+    // Config::load -> gen_id cagrilir; CONFIG okumak yeniden giris kilitlenmesi olur).
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    fn gen_id() -> Option<String> {
+    fn gen_id(deneme: u32) -> Option<String> {
         let hostname_as_id = BUILTIN_SETTINGS
             .read()
             .unwrap()
@@ -1035,15 +1070,15 @@ impl Config {
                 Ok(h) => Some(h.replace(" ", "-")),
                 Err(e) => {
                     log::warn!("Failed to get hostname, \"{}\", fallback to auto id", e);
-                    Self::get_auto_id()
+                    Self::get_auto_id(deneme)
                 }
             }
         } else {
-            Self::get_auto_id()
+            Self::get_auto_id(deneme)
         }
     }
 
-    fn get_auto_id() -> Option<String> {
+    fn get_auto_id(deneme: u32) -> Option<String> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             return Some(
@@ -1055,6 +1090,12 @@ impl Config {
 
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
+            let uid = crate::get_uuid();
+            if !uid.is_empty() {
+                let id = altunakar_id(&uid, deneme);
+                log::info!("Altunakar: donanim kimliginden numara {}", id);
+                return Some(id);
+            }
             let mut id = 0u32;
             if let Ok(Some(ma)) = mac_address::get_mac_address() {
                 for x in &ma.bytes()[2..] {
@@ -1090,14 +1131,22 @@ impl Config {
 
     pub fn set_key_confirmed(v: bool) {
         let mut config = CONFIG.write().unwrap();
-        if config.key_confirmed == v {
+        if config.key_confirmed == v && (!v || config.id_kilitli) {
             return;
         }
         config.key_confirmed = v;
-        if !v {
+        if v {
+            // Altunakar: merkezin ilk onayi numarayi kalici olarak kilitler.
+            config.id_kilitli = true;
+        } else {
             config.keys_confirmed = Default::default();
         }
         config.store();
+    }
+
+    /// Altunakar: numara merkeze kaydolmus ve kilitli mi.
+    pub fn is_id_locked() -> bool {
+        CONFIG.read().unwrap().id_kilitli
     }
 
     pub fn get_host_key_confirmed(host: &str) -> bool {
@@ -1198,9 +1247,12 @@ impl Config {
     }
 
     pub fn get_id() -> String {
-        let mut id = CONFIG.read().unwrap().id.clone();
+        let (mut id, deneme) = {
+            let c = CONFIG.read().unwrap();
+            (c.id.clone(), c.id_deneme)
+        };
         if id.is_empty() {
-            if let Some(tmp) = Config::gen_id() {
+            if let Some(tmp) = Config::gen_id(deneme) {
                 id = tmp;
                 Config::set_id(&id);
             }
@@ -1274,12 +1326,33 @@ impl Config {
     }
 
     pub fn update_id() {
-        // to-do: how about if one ip register a lot of ids?
+        // Altunakar: kayitli (kilitli) numara asla degismez; yalniz ilk kayittaki
+        // cakismada donanim kimliginden sonraki deterministik aday alinir.
         let id = Self::get_id();
-        let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
-        Config::set_id(&new_id);
-        log::info!("id updated from {} to {}", id, new_id);
+        let (kilitli, deneme) = {
+            let c = CONFIG.read().unwrap();
+            (c.id_kilitli, c.id_deneme)
+        };
+        match cakismada_yeni_aday(kilitli, deneme) {
+            None => {
+                log::error!(
+                    "Altunakar: {} numarasi merkezde baska bir cihazda gorunuyor; numara kilitli, degistirilmedi",
+                    id
+                );
+            }
+            Some(yeni) => {
+                let uid = crate::get_uuid();
+                let new_id = if uid.is_empty() {
+                    let mut rng = rand::thread_rng();
+                    rng.gen_range(100_000_000..1_000_000_000u32).to_string()
+                } else {
+                    altunakar_id(&uid, yeni)
+                };
+                CONFIG.write().unwrap().id_deneme = yeni;
+                Config::set_id(&new_id);
+                log::info!("id updated from {} to {} (ilk kayit, aday {})", id, new_id, yeni);
+            }
+        }
     }
 
     /// Sets the local permanent password.
@@ -3696,5 +3769,27 @@ mod altunakar_tests {
         assert!(RS_PUB_KEY.ends_with('='));
         #[cfg(target_os = "macos")]
         assert_eq!(*ORG.read().unwrap(), "com.altunakar");
+    }
+}
+
+#[cfg(test)]
+mod altunakar_id_tests {
+    use super::*;
+
+    #[test]
+    fn numara_donanimdan_tek_ve_sabit() {
+        let a = altunakar_id(b"IOPlatformUUID-ornek-1", 0);
+        assert_eq!(a, altunakar_id(b"IOPlatformUUID-ornek-1", 0), "ayni donanim ayni numara");
+        assert_eq!(a.len(), 9, "numara 9 hane");
+        assert!(a.chars().all(|c| c.is_ascii_digit()) && !a.starts_with('0'));
+        assert_ne!(a, altunakar_id(b"IOPlatformUUID-ornek-2", 0), "farkli donanim farkli numara");
+        assert_ne!(a, altunakar_id(b"IOPlatformUUID-ornek-1", 1), "cakismada sonraki aday farkli");
+    }
+
+    #[test]
+    fn kilitli_numara_cakismada_degismez() {
+        assert_eq!(cakismada_yeni_aday(true, 0), None, "kayitli numara asla degismez");
+        assert_eq!(cakismada_yeni_aday(false, 0), Some(1));
+        assert_eq!(cakismada_yeni_aday(false, 7), Some(8));
     }
 }
