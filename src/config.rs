@@ -54,7 +54,7 @@ const SERIAL: i32 = 3;
 
 #[cfg(target_os = "macos")]
 lazy_static::lazy_static! {
-    pub static ref ORG: RwLock<String> = RwLock::new("com.carriez".to_owned());
+    pub static ref ORG: RwLock<String> = RwLock::new("com.altunakar".to_owned());
 }
 
 type Size = (i32, i32, i32, i32);
@@ -67,9 +67,9 @@ lazy_static::lazy_static! {
     static ref STATUS: RwLock<Status> = RwLock::new(Status::load());
     static ref TRUSTED_DEVICES: RwLock<(Vec<TrustedDevice>, bool)> = Default::default();
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
-    pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
+    pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("desk.tunayalcin.blog".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RustDesk".to_owned());
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("AltunakarDesk".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
@@ -114,8 +114,8 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
-pub const RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
+pub const RENDEZVOUS_SERVERS: &[&str] = &["desk.tunayalcin.blog"];
+pub const RS_PUB_KEY: &str = "biJzP5KwSqUiAhgsys6bCn0nXIC+ImOe1A87N97DlMU=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;
@@ -3676,5 +3676,25 @@ mod tests {
         let non_service_root = Config::ipc_path_for_uid(ROOT_UID, "");
         let non_service_user = Config::ipc_path_for_uid(USER_UID, "");
         assert_ne!(non_service_root, non_service_user);
+    }
+}
+
+#[cfg(test)]
+mod altunakar_tests {
+    use super::*;
+
+    // RustDesk'in genel sunucusunun anahtari: bizim derlemede ASLA olmamali.
+    const RUSTDESK_GENEL_ANAHTAR: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
+
+    #[test]
+    fn altunakar_merkezi_ve_adi() {
+        assert_eq!(RENDEZVOUS_SERVERS, &["desk.tunayalcin.blog"]);
+        assert_eq!(*PROD_RENDEZVOUS_SERVER.read().unwrap(), "desk.tunayalcin.blog");
+        assert_eq!(*APP_NAME.read().unwrap(), "AltunakarDesk");
+        assert_ne!(RS_PUB_KEY, RUSTDESK_GENEL_ANAHTAR);
+        assert_eq!(RS_PUB_KEY.len(), 44, "ed25519 acik anahtari base64 ile 44 karakterdir");
+        assert!(RS_PUB_KEY.ends_with('='));
+        #[cfg(target_os = "macos")]
+        assert_eq!(*ORG.read().unwrap(), "com.altunakar");
     }
 }
