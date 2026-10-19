@@ -79,7 +79,7 @@ lazy_static::lazy_static! {
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_sabit_ayarlar());
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
 }
 
@@ -127,6 +127,22 @@ pub fn altunakar_id(uid: &[u8], deneme: u32) -> String {
     let mut sekiz = [0u8; 8];
     sekiz.copy_from_slice(&d[..8]);
     (100_000_000 + u64::from_be_bytes(sekiz) % 900_000_000).to_string()
+}
+
+/// Altunakar: ekip sunucusu (Asama 2) gelene kadar hesap girisi, adres defteri ve grup paneli
+/// kapali; acik kalirsa "Giris yap" var olmayan bir sunucuya gider.
+pub fn altunakar_sabit_ayarlar() -> HashMap<String, String> {
+    [("disable-account", "Y"), ("disable-ab", "Y")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+/// Altunakar: kilit kurali gelmeden once merkeze kaydolmus (key_confirmed) kurulumun numarasi
+/// guncellemede kilitlenir; yoksa ilk cakismada degisebilirdi. Yeni uretilen numara ise ilk
+/// kayitta (set_key_confirmed) kilitlenir.
+pub fn altunakar_kilit_gocu(id_gecerli: bool, key_confirmed: bool, kilitli: bool) -> bool {
+    id_gecerli && key_confirmed && !kilitli
 }
 
 /// Altunakar: merkez numarayi baska bir cihazda gorurse ne olacagi. Kilitli (bir kez
@@ -663,6 +679,11 @@ impl Config {
             && !decrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION).1
         {
             id_valid = true;
+            store = true;
+        }
+        if altunakar_kilit_gocu(id_valid, config.key_confirmed, config.id_kilitli) {
+            log::info!("Altunakar: merkeze kayitli numara kilitlendi");
+            config.id_kilitli = true;
             store = true;
         }
         if !id_valid {
@@ -3791,5 +3812,20 @@ mod altunakar_id_tests {
         assert_eq!(cakismada_yeni_aday(true, 0), None, "kayitli numara asla degismez");
         assert_eq!(cakismada_yeni_aday(false, 0), Some(1));
         assert_eq!(cakismada_yeni_aday(false, 7), Some(8));
+    }
+
+    #[test]
+    fn eski_kayitli_kurulum_guncellemede_kilitlenir() {
+        assert!(altunakar_kilit_gocu(true, true, false));
+        assert!(!altunakar_kilit_gocu(true, false, false), "merkeze kaydolmamis numara kilitlenmez");
+        assert!(!altunakar_kilit_gocu(false, true, false), "yeni uretilen numara ilk kayitta kilitlenir");
+        assert!(!altunakar_kilit_gocu(true, true, true), "zaten kilitli");
+    }
+
+    #[test]
+    fn ekip_sunucusu_yokken_hesap_ve_adres_defteri_kapali() {
+        let s = altunakar_sabit_ayarlar();
+        assert_eq!(s.get("disable-account").map(String::as_str), Some("Y"));
+        assert_eq!(s.get("disable-ab").map(String::as_str), Some("Y"));
     }
 }
