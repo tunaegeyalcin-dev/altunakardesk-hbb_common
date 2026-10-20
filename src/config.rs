@@ -338,6 +338,10 @@ pub struct PeerConfig {
         skip_serializing_if = "String::is_empty"
     )]
     pub view_style: String,
+    /// Altunakar: view_style'in bir kereye mahsus "pencereye sigdir"a cevrildigini gosterir
+    /// (altunakar_gorunum_gocu_uygula). Eski kayitlarda yok (false), yeni kayitta true.
+    #[serde(default, deserialize_with = "deserialize_bool")]
+    pub altunakar_gorunum_gocu: bool,
     // Image scroll style, scrolledge, scrollbar or scroll auto
     #[serde(
         default = "PeerConfig::default_scroll_style",
@@ -457,6 +461,7 @@ impl Default for PeerConfig {
             size_ft: Default::default(),
             size_pf: Default::default(),
             view_style: Self::default_view_style(),
+            altunakar_gorunum_gocu: true,
             scroll_style: Self::default_scroll_style(),
             edge_scroll_edge_thickness: Self::default_edge_scroll_edge_thickness(),
             image_quality: Self::default_image_quality(),
@@ -1821,6 +1826,7 @@ impl PeerConfig {
                         store = store || store2;
                     }
                 }
+                store = config.altunakar_gorunum_gocu_uygula() || store;
                 if store {
                     config.store_(id);
                 }
@@ -1841,6 +1847,21 @@ impl PeerConfig {
     pub fn store(&self, id: &str) {
         let _lock = CONFIG.read().unwrap();
         self.store_(id);
+    }
+
+    /// Altunakar: 1.5.0-9 oncesinde masaustu varsayilani "original" idi (uzak ekran 1:1; Retina gibi
+    /// yuksek cozunurluklu ekran pencereye sigmaz, kesik ve buyuk gorunur) ve her kayitli cihaza
+    /// yazildi. Bir kereye mahsus genel varsayilana (pencereye sigdir) cevrilir; sonradan bilerek
+    /// "original" secilirse korunur. Dosyanin yeniden yazilmasi gerekiyorsa true doner.
+    pub fn altunakar_gorunum_gocu_uygula(&mut self) -> bool {
+        if self.altunakar_gorunum_gocu {
+            return false;
+        }
+        self.altunakar_gorunum_gocu = true;
+        if self.view_style == "original" {
+            self.view_style = Self::default_view_style();
+        }
+        true
     }
 
     fn store_(&self, id: &str) {
@@ -2465,8 +2486,9 @@ impl UserDefaultConfig {
         match key {
             #[cfg(any(target_os = "android", target_os = "ios"))]
             keys::OPTION_VIEW_STYLE => self.get_string(key, "adaptive", vec!["original"]),
+            // Altunakar: masaustunde de varsayilan "pencereye sigdir" (yukari akista "original").
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            keys::OPTION_VIEW_STYLE => self.get_string(key, "original", vec!["adaptive"]),
+            keys::OPTION_VIEW_STYLE => self.get_string(key, "adaptive", vec!["original"]),
             keys::OPTION_SCROLL_STYLE => {
                 self.get_string(key, "scrollauto", vec!["scrolledge", "scrollbar"])
             }
@@ -3800,6 +3822,51 @@ mod altunakar_tests {
         assert!(RS_PUB_KEY.ends_with('='));
         #[cfg(target_os = "macos")]
         assert_eq!(*ORG.read().unwrap(), "com.altunakar");
+    }
+}
+
+#[cfg(test)]
+mod altunakar_gorunum_tests {
+    use super::*;
+
+    // Retina gibi yuksek cozunurluklu uzak ekran 1:1 ("original") gosterilince pencereye sigmaz,
+    // kesik ve buyuk gorunur. Altunakar varsayilani "pencereye sigdir" (adaptive).
+    #[test]
+    fn varsayilan_gorunum_pencereye_sigdir() {
+        let mut u = UserDefaultConfig::default();
+        assert_eq!(u.get(keys::OPTION_VIEW_STYLE), "adaptive");
+        u.options.insert(keys::OPTION_VIEW_STYLE.to_owned(), "original".to_owned());
+        assert_eq!(u.get(keys::OPTION_VIEW_STYLE), "original", "bilerek secilen genel ayar korunur");
+    }
+
+    #[test]
+    fn eski_kayitli_cihaz_bir_kez_pencereye_sigdir_olur() {
+        let mut eski = toml::from_str::<PeerConfig>(r#"view_style = "original""#).unwrap();
+        assert!(!eski.altunakar_gorunum_gocu, "eski kayitta bayrak yok");
+        assert!(eski.altunakar_gorunum_gocu_uygula(), "kaydedilmeli");
+        assert_eq!(eski.view_style, "adaptive");
+        // Sonradan bilerek "original" secilirse bir daha degistirilmez.
+        eski.view_style = "original".to_owned();
+        assert!(!eski.altunakar_gorunum_gocu_uygula());
+        assert_eq!(eski.view_style, "original");
+        let geri: PeerConfig = toml::from_str(&toml::to_string(&eski).unwrap()).unwrap();
+        assert!(geri.altunakar_gorunum_gocu, "bayrak dosyada kalir");
+        assert_eq!(geri.view_style, "original");
+        assert!(PeerConfig::default().altunakar_gorunum_gocu, "yeni kayit gocten muaf");
+    }
+
+    #[test]
+    fn kayitli_cihaz_dosyasi_yuklenirken_gocer() {
+        let id = "altunakar-gorunum-deneme";
+        let yol = PeerConfig::path(id);
+        std::fs::create_dir_all(yol.parent().unwrap()).unwrap();
+        std::fs::write(&yol, "view_style = \"original\"\n").unwrap();
+        let c = PeerConfig::load(id);
+        assert_eq!(c.view_style, "adaptive");
+        let yazilan: PeerConfig = toml::from_str(&std::fs::read_to_string(&yol).unwrap()).unwrap();
+        assert!(yazilan.altunakar_gorunum_gocu, "goc dosyaya yazildi");
+        assert_eq!(yazilan.view_style, "adaptive");
+        std::fs::remove_file(&yol).ok();
     }
 }
 
