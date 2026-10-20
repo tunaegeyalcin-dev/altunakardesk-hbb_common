@@ -73,7 +73,7 @@ lazy_static::lazy_static! {
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
-    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_varsayilan_ayarlar());
     pub static ref OVERWRITE_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
@@ -133,6 +133,16 @@ pub fn altunakar_id(uid: &[u8], deneme: u32) -> String {
 /// kapali; acik kalirsa "Giris yap" var olmayan bir sunucuya gider.
 pub fn altunakar_sabit_ayarlar() -> HashMap<String, String> {
     [("disable-account", "Y"), ("disable-ab", "Y")]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+/// Altunakar: kullanicinin degistirebildigi varsayilanlar. Otomatik guncelleme acik (AnyDesk gibi);
+/// imzali bildirim + SHA-256 dogrulanmadan hicbir sey kurulmaz (altunakar_guncelleme).
+/// Anahtar adi base::config::keys::OPTION_ALLOW_AUTO_UPDATE ile ayni (hbb_common base'e bagli olamaz).
+pub fn altunakar_varsayilan_ayarlar() -> HashMap<String, String> {
+    [("allow-auto-update", "Y")]
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
@@ -3827,5 +3837,12 @@ mod altunakar_id_tests {
         let s = altunakar_sabit_ayarlar();
         assert_eq!(s.get("disable-account").map(String::as_str), Some("Y"));
         assert_eq!(s.get("disable-ab").map(String::as_str), Some("Y"));
+    }
+
+    #[test]
+    fn otomatik_guncelleme_varsayilan_acik() {
+        let d = DEFAULT_SETTINGS.read().unwrap();
+        assert_eq!(d.get("allow-auto-update").map(String::as_str), Some("Y"));
+        assert!(option2bool("allow-auto-update", "Y"));
     }
 }

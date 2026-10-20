@@ -19,7 +19,16 @@ pub const IMZA_DOSYASI: &str = "AltunakarDesk-surum.json.imza";
 /// Derlemenin surum etiketi (CI'da ALTUNAKAR_SURUM = git etiketi, or. "1.5.0-8").
 /// Yerel/deneme derlemelerinde bos: bu durumda otomatik guncelleme yapilmaz.
 pub fn surum() -> &'static str {
-    option_env!("ALTUNAKAR_SURUM").unwrap_or("")
+    etiketten_surum(option_env!("ALTUNAKAR_SURUM").unwrap_or(""))
+}
+
+/// Etiketin onekini atar: "intel-1.5.0-7" (gecici yeniden derleme etiketi) -> "1.5.0-7",
+/// "nightly" -> "".
+fn etiketten_surum(etiket: &str) -> &str {
+    etiket
+        .find(|c: char| c.is_ascii_digit())
+        .map(|i| &etiket[i..])
+        .unwrap_or("")
 }
 
 /// "1.5.0-8" / "v1.5.0-8" / "1.5.0" -> [1, 5, 0, 8]. Taninmayan bicim -> None.
@@ -162,6 +171,9 @@ mod tests {
         assert!(!daha_yeni("1.5.0-7", "1.5.0-7"));
         assert!(!daha_yeni("1.5.0-6", "1.5.0-7"));
         assert!(!daha_yeni("1.5.0-8", ""), "surumu bilinmeyen deneme derlemesi guncellenmez");
+        assert_eq!(etiketten_surum("intel-1.5.0-7"), "1.5.0-7");
+        assert_eq!(etiketten_surum("v1.5.0-8"), "1.5.0-8");
+        assert_eq!(etiketten_surum("nightly"), "");
     }
 
     #[test]
