@@ -25,6 +25,7 @@ pub mod bytes_codec;
 pub use anyhow::{self, bail};
 pub use futures_util;
 pub mod config;
+pub mod altunakar;
 pub mod altunakar_guncelleme;
 pub mod mem;
 pub use lazy_static;
