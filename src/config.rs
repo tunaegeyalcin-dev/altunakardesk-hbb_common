@@ -74,12 +74,12 @@ lazy_static::lazy_static! {
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
     pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_varsayilan_ayarlar());
-    pub static ref OVERWRITE_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    pub static ref OVERWRITE_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_ust_ayarlar());
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
-    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_sabit_ayarlar());
+    pub static ref OVERWRITE_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = RwLock::new(altunakar_yerel_ust_ayarlar());
+    pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
 }
 
@@ -129,10 +129,22 @@ pub fn altunakar_id(uid: &[u8], deneme: u32) -> String {
     (100_000_000 + u64::from_be_bytes(sekiz) % 900_000_000).to_string()
 }
 
-/// Altunakar: ekip sunucusu (Asama 2) gelene kadar hesap girisi, adres defteri ve grup paneli
-/// kapali; acik kalirsa "Giris yap" var olmayan bir sunucuya gider.
-pub fn altunakar_sabit_ayarlar() -> HashMap<String, String> {
-    [("disable-account", "Y"), ("disable-ab", "Y")]
+/// Altunakar: ekip sunucusu (Asama 2). Cloudflare Tunnel arkasinda HTTPS; 21114
+/// modemde acik degil. Kullanici degistiremez (OVERWRITE).
+pub const ALTUNAKAR_API_SUNUCUSU: &str = "https://deskapi.tunayalcin.blog";
+
+/// Altunakar: kullanicinin degistiremeyecegi ayarlar.
+pub fn altunakar_ust_ayarlar() -> HashMap<String, String> {
+    [("api-server", ALTUNAKAR_API_SUNUCUSU)]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+/// Altunakar: RustDesk Pro'nun "erisilebilir cihazlar" (grup) paneli kullanilmaz;
+/// firmalar ortak adres defterinde etikettir.
+pub fn altunakar_yerel_ust_ayarlar() -> HashMap<String, String> {
+    [("disable-group-panel", "Y")]
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
@@ -3900,10 +3912,15 @@ mod altunakar_id_tests {
     }
 
     #[test]
-    fn ekip_sunucusu_yokken_hesap_ve_adres_defteri_kapali() {
-        let s = altunakar_sabit_ayarlar();
-        assert_eq!(s.get("disable-account").map(String::as_str), Some("Y"));
-        assert_eq!(s.get("disable-ab").map(String::as_str), Some("Y"));
+    fn ekip_sunucusu_adresi_sabit_hesap_ve_defter_acik() {
+        assert_eq!(
+            altunakar_ust_ayarlar().get("api-server").map(String::as_str),
+            Some(ALTUNAKAR_API_SUNUCUSU)
+        );
+        assert_eq!(Config::get_option("api-server"), ALTUNAKAR_API_SUNUCUSU);
+        assert!(!is_disable_account(), "Asama 2: hesap girisi acik");
+        assert!(!is_disable_ab(), "Asama 2: adres defteri acik");
+        assert_eq!(LocalConfig::get_option("disable-group-panel"), "Y");
     }
 
     #[test]
