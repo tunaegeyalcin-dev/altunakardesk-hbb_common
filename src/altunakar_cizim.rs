@@ -61,11 +61,16 @@ pub fn anahtar_cizim(conn_id: i32) -> String {
 
 /// Çerçevenin üstündeki etiket. Doğrulanmış teknisyen adı ya da bağlananın adı eklenir.
 pub fn cerceve_etiketi(ad: &str) -> String {
+    cerceve_etiketi_onekli("Altunakar Destek bağlı", ad)
+}
+
+/// `onek`: program diline çevrilmiş "Altunakar Destek bağlı".
+pub fn cerceve_etiketi_onekli(onek: &str, ad: &str) -> String {
     let ad: String = ad.trim().chars().take(40).collect();
     if ad.is_empty() {
-        "Altunakar Destek bağlı".to_owned()
+        onek.to_owned()
     } else {
-        format!("Altunakar Destek bağlı · {}", ad)
+        format!("{} · {}", onek, ad)
     }
 }
 
@@ -335,6 +340,7 @@ mod tests {
         assert_eq!(c[1][0], (1923.0, 3.0));
         assert_eq!(cerceve_etiketi("  Tuna "), "Altunakar Destek bağlı · Tuna");
         assert_eq!(cerceve_etiketi(""), "Altunakar Destek bağlı");
+        assert_eq!(cerceve_etiketi_onekli("Altunakar Support verbunden", "Tuna"), "Altunakar Support verbunden · Tuna");
         assert_eq!(anahtar_cerceve(7), "7-cerceve");
         assert_eq!(anahtar_cizim(7), "7-cizim");
         assert_eq!(argb_parcala(0x80FF8C1A), (0xFF, 0x8C, 0x1A, 0x80));
