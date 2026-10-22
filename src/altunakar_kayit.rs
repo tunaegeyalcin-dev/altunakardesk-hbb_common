@@ -104,12 +104,13 @@ pub fn hazirla(kokler: &[(&str, &Path)], baslik: &str) -> ResultType<Vec<u8>> {
     paketle(baslik, &dosyalar)
 }
 
-/// Hizmetin okumasına izin verilen kullanıcı kayıt klasörü: mutlak yol ve sonu
-/// `<uygulama adı>/log` (hizmetten başka klasör okutulamasın).
-pub fn kullanici_kayit_klasoru_gecerli(yol: &Path, uygulama: &str) -> bool {
-    yol.is_absolute()
-        && yol.ends_with(Path::new(uygulama).join("log"))
-        && !yol.components().any(|c| matches!(c, std::path::Component::ParentDir))
+/// Programdan hizmete verilen hazır paketin ve gönderilen gövdenin üst sınırı.
+pub const EK_SINIRI: usize = 8 * 1024 * 1024;
+
+/// gzip başlığı (1f 8b) ile mi başlıyor.
+#[inline]
+pub fn gzip_mi(veri: &[u8]) -> bool {
+    veri.len() > 2 && veri[0] == 0x1f && veri[1] == 0x8b
 }
 
 #[cfg(test)]
@@ -125,13 +126,15 @@ mod tests {
     }
 
     #[test]
-    fn hizmet_yalniz_kendi_kayit_klasorunu_okur() {
-        let ok = std::env::temp_dir().join("Kullanici").join("AltunakarDesk").join("log");
-        assert!(kullanici_kayit_klasoru_gecerli(&ok, "AltunakarDesk"));
-        assert!(!kullanici_kayit_klasoru_gecerli(Path::new("AltunakarDesk/log"), "AltunakarDesk"), "göreli yol");
-        assert!(!kullanici_kayit_klasoru_gecerli(&std::env::temp_dir().join("Baska").join("log"), "AltunakarDesk"));
-        let kacis = std::env::temp_dir().join("AltunakarDesk").join("log").join("..").join("AltunakarDesk").join("log");
-        assert!(!kullanici_kayit_klasoru_gecerli(&kacis, "AltunakarDesk"), "üst klasöre kaçış yok");
+    fn iki_paket_art_arda_tek_dosya_gibi_acilir() {
+        let a = paketle("hizmet", &[("h.log".into(), b"bir\n".to_vec())]).unwrap();
+        let b = paketle("program", &[("p.log".into(), b"iki\n".to_vec())]).unwrap();
+        assert!(gzip_mi(&a) && gzip_mi(&b) && !gzip_mi(b"duz metin"));
+        let mut govde = a.clone();
+        govde.extend(&b);
+        let mut s = String::new();
+        flate2::read::MultiGzDecoder::new(&govde[..]).read_to_string(&mut s).unwrap();
+        assert!(s.contains("bir") && s.contains("iki"), "zcat/gunzip ikisini de açar");
     }
 
     #[test]
