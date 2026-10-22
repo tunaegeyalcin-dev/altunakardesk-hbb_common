@@ -30,6 +30,7 @@ pub mod altunakar_guncelleme;
 pub mod altunakar_sohbet;
 pub mod altunakar_izin;
 pub mod altunakar_kayit;
+pub mod altunakar_cizim;
 pub mod mem;
 pub use lazy_static;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
