@@ -467,8 +467,27 @@ mod tests {
         server.await.unwrap();
     }
 
+    /// Altunakar: sunucu ayarlari OVERWRITE ile kilitli (config::altunakar_ust_ayarlar); bu
+    /// yukari akis testi onlari elle degistirir. Test boyunca kilit kalkar, sonunda geri konur.
+    struct KilitAskisi(std::collections::HashMap<String, String>);
+
+    impl KilitAskisi {
+        fn new() -> Self {
+            Self(std::mem::take(
+                &mut *crate::config::OVERWRITE_SETTINGS.write().unwrap(),
+            ))
+        }
+    }
+
+    impl Drop for KilitAskisi {
+        fn drop(&mut self) {
+            *crate::config::OVERWRITE_SETTINGS.write().unwrap() = std::mem::take(&mut self.0);
+        }
+    }
+
     #[test]
     fn test_check_ws() {
+        let _kilit = KilitAskisi::new();
         let options = Config::get_options();
         // enable websocket
         Config::set_option(keys::OPTION_ALLOW_WEBSOCKET.to_string(), "Y".to_string());

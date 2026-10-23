@@ -133,12 +133,23 @@ pub fn altunakar_id(uid: &[u8], deneme: u32) -> String {
 /// modemde acik degil. Kullanici degistiremez (OVERWRITE).
 pub const ALTUNAKAR_API_SUNUCUSU: &str = "https://deskapi.tunayalcin.blog";
 
-/// Altunakar: kullanicinin degistiremeyecegi ayarlar.
+/// Altunakar: kullanicinin degistiremeyecegi ayarlar (Ayarlar'da gri gorunur; arayuz, komut
+/// satiri ve ayar ice aktarma yazamaz). Sunucu adresi ve anahtari yalniz yeni surumle degisir;
+/// guvensiz TLS geri donusu ve dogrudan IP erisimi (sunucuyu atlayan dinleyen port) kapali.
+/// Windows'ta dosya adindan sunucu okuma da kapali (platform::windows::get_license_from_exe_name).
 pub fn altunakar_ust_ayarlar() -> HashMap<String, String> {
-    [("api-server", ALTUNAKAR_API_SUNUCUSU)]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect()
+    [
+        ("api-server", ALTUNAKAR_API_SUNUCUSU),
+        ("custom-rendezvous-server", RENDEZVOUS_SERVERS[0]),
+        // Bos = aktarma sunucusunu merkez bildirir.
+        ("relay-server", ""),
+        ("key", RS_PUB_KEY),
+        (keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK, "N"),
+        (keys::OPTION_DIRECT_SERVER, "N"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect()
 }
 
 /// Altunakar: RustDesk Pro'nun "erisilebilir cihazlar" (grup) paneli kullanilmaz;
@@ -3925,6 +3936,49 @@ mod altunakar_id_tests {
         assert!(!altunakar_kilit_gocu(true, false, false), "merkeze kaydolmamis numara kilitlenmez");
         assert!(!altunakar_kilit_gocu(false, true, false), "yeni uretilen numara ilk kayitta kilitlenir");
         assert!(!altunakar_kilit_gocu(true, true, true), "zaten kilitli");
+    }
+
+    #[test]
+    fn sunucu_tls_ve_dogrudan_ip_kilitli() {
+        assert_eq!(
+            Config::get_option("custom-rendezvous-server"),
+            "desk.tunayalcin.blog"
+        );
+        assert_eq!(Config::get_option("relay-server"), "");
+        assert_eq!(Config::get_option("key"), RS_PUB_KEY);
+        assert!(!allow_insecure_tls_fallback());
+        assert!(!Config::get_bool_option(keys::OPTION_DIRECT_SERVER));
+        assert_eq!(
+            Config::get_rendezvous_server(),
+            format!("desk.tunayalcin.blog:{RENDEZVOUS_PORT}")
+        );
+
+        // Arayuz, komut satiri ya da ice aktarma yazsa da kilit degismez ve diske de yazilmaz.
+        let eski = Config::get_options();
+        for (k, v) in [
+            ("custom-rendezvous-server", "kotu.example.com"),
+            ("relay-server", "kotu.example.com"),
+            ("key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+            ("api-server", "https://kotu.example.com"),
+            (keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK, "Y"),
+            (keys::OPTION_DIRECT_SERVER, "Y"),
+        ] {
+            Config::set_option(k.to_string(), v.to_string());
+            assert!(
+                !CONFIG2.read().unwrap().options.contains_key(k),
+                "{k} diske yazilmamali"
+            );
+        }
+        assert_eq!(
+            Config::get_option("custom-rendezvous-server"),
+            "desk.tunayalcin.blog"
+        );
+        assert_eq!(Config::get_option("relay-server"), "");
+        assert_eq!(Config::get_option("key"), RS_PUB_KEY);
+        assert_eq!(Config::get_option("api-server"), ALTUNAKAR_API_SUNUCUSU);
+        assert!(!allow_insecure_tls_fallback());
+        assert!(!Config::get_bool_option(keys::OPTION_DIRECT_SERVER));
+        Config::set_options(eski);
     }
 
     #[test]
