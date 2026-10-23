@@ -2344,6 +2344,19 @@ impl LocalConfig {
         .unwrap_or_default()
     }
 
+    /// Altunakar: seçeneği diskteki son hâliyle okur. Her süreç yerel ayarları açılışta bir kez
+    /// yükler; bağlantı penceresi açıkken ana pencerede değişen ayar (ör. sohbet kaydı) böylece
+    /// aynı bağlantıda geçerli olur. Seyrek okunan ayarlar içindir (her çağrı dosyayı okur).
+    pub fn get_option_diskten(k: &str) -> String {
+        get_or(
+            &OVERWRITE_LOCAL_SETTINGS,
+            &Self::load().options,
+            &DEFAULT_LOCAL_SETTINGS,
+            k,
+        )
+        .unwrap_or_default()
+    }
+
     // Usually get_option should be used.
     pub fn get_option_from_file(k: &str) -> String {
         get_or(
