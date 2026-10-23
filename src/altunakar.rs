@@ -43,6 +43,50 @@ pub fn bilet_dogrula(bilet: &str, acik_anahtar: &str, kaynak: &str, hedef: &str,
     }
 }
 
+// ---- Lisans belgesi (abonelik; spec 2026-10-23) ----------------------------
+// Ekip sunucusu lisans anahtari dogrulanan cihaza ayni Ed25519 anahtariyla
+// "altunakardesk-lisans-v1" belgesi keser (Bina altunakardesk/ekip/bilet.go
+// LisansBelgesi). Istemci belgeyi LocalConfig'te saklar ve cevrimdisi dogrular:
+// "s" (bitis + 7 gun esneme) gecene kadar lisanslidir.
+
+const LISANS_TURU: &str = "altunakardesk-lisans-v1";
+
+#[derive(serde_derive::Deserialize)]
+struct LisansYuku {
+    t: String,
+    f: String,
+    p: String,
+    k: i64,
+    n: String,
+    s: i64,
+}
+
+/// Dogrulanmis lisans belgesinin ozeti.
+pub struct LisansBelge {
+    pub firma: String,
+    pub paket: String,
+    pub koltuk: i64,
+    pub son: i64, // unix saniye; bitis + esneme
+}
+
+/// Lisans belgesini dogrular; gecerliyse ozetini doner. Gecersiz, suresi
+/// dolmus ya da BASKA cihaza kesilmis belge `None`. `cihaz` bu kurulumun
+/// numarasi, `simdi` unix saniye.
+pub fn lisans_belge_dogrula(belge: &str, acik_anahtar: &str, cihaz: &str, simdi: i64) -> Option<LisansBelge> {
+    if belge.is_empty() || belge.len() > 4096 {
+        return None;
+    }
+    let _ = sodiumoxide::init();
+    let pk = sign::PublicKey::from_slice(&STANDARD.decode(acik_anahtar).ok()?)?;
+    let yuk = sign::verify(&STANDARD.decode(belge).ok()?, &pk).ok()?;
+    let y: LisansYuku = serde_json::from_slice(&yuk).ok()?;
+    if y.t != LISANS_TURU || y.n != cihaz || simdi > y.s {
+        return None;
+    }
+    let firma: String = y.f.chars().filter(|c| !c.is_control()).take(120).collect();
+    Some(LisansBelge { firma: firma.trim().to_owned(), paket: y.p, koltuk: y.k, son: y.s })
+}
+
 /// Bilet isteginin govdesi (POST /api/altunakar/bilet).
 pub fn bilet_istegi(kaynak: &str, hedef: &str) -> String {
     serde_json::json!({ "kaynak": kaynak, "hedef": hedef }).to_string()
@@ -57,6 +101,27 @@ pub fn bilet_yanitindan(yanit: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Ekip sunucusunun TestLisansBelgesiSabitOrnek testindeki SABIT ornek.
+    const ORNEK_LISANS: &str = "J1ebwcYx2O59/evIWH5Y1p8lopcP5SCGIzpcRENO5v+hizCANvxqCUR6JFH4uzE+gyvUIsbJaXTBjXpNFrxaAnsidCI6ImFsdHVuYWthcmRlc2stbGlzYW5zLXYxIiwiZiI6IsOWcm5layBCaWxpxZ9pbSIsInAiOiJla2lwIiwiayI6MywibiI6IjQwNzUwMzI1MSIsInMiOjE3OTA2MDQ4MDAsImQiOjE3NjA5NTA4MDB9";
+    const LISANS_SON: i64 = 1790604800;
+
+    #[test]
+    fn gecerli_lisans_belgesi_ozet_verir() {
+        let b = lisans_belge_dogrula(ORNEK_LISANS, ORNEK_PK, "407503251", LISANS_SON - 60).unwrap();
+        assert_eq!(b.firma, "Örnek Bilişim");
+        assert_eq!(b.paket, "ekip");
+        assert_eq!(b.koltuk, 3);
+        assert_eq!(b.son, LISANS_SON);
+    }
+
+    #[test]
+    fn gecersiz_lisans_belgeleri_reddedilir() {
+        assert!(lisans_belge_dogrula(ORNEK_LISANS, ORNEK_PK, "11111111", LISANS_SON - 60).is_none(), "baska cihaz");
+        assert!(lisans_belge_dogrula(ORNEK_LISANS, ORNEK_PK, "407503251", LISANS_SON + 1).is_none(), "suresi dolmus");
+        assert!(lisans_belge_dogrula(ORNEK_BILET, ORNEK_PK, "407503251", LISANS_SON - 60).is_none(), "bilet lisans degildir");
+        assert!(lisans_belge_dogrula("", ORNEK_PK, "407503251", 0).is_none());
+    }
 
     // Ekip sunucusunun TestBiletImzaVeYuk testindeki SABIT ornek (ayni tohum, ayni an).
     const ORNEK_PK: &str = "tnTEf61LpD1nhj94YpPovN/Pp8Tb1+Hlu/2+HiUb/Bk=";
