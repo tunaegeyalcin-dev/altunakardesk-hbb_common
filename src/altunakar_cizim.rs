@@ -1,4 +1,4 @@
-//! Altunakar: bağlıyken ekran çerçevesi ve beyaz tahta (uzak ekrana çizim).
+//! Altunakar: beyaz tahta (uzak ekrana çizim).
 //!
 //! Platformdan bağımsız kısım: şekil deposu ve şekillerin boyanacak çizgilere çevrilmesi.
 //! Karşı taraftaki katman (Windows'ta tiny-skia, Mac'te piet) yalnız bu çizgileri boyar;
@@ -22,13 +22,6 @@ pub const EN_COK_SEKIL: usize = 300;
 pub const EN_INCE: f32 = 1.0;
 pub const EN_KALIN: f32 = 40.0;
 
-/// Çerçeve rengi (Altunakar turuncusu, ARGB) ve kalınlığı (piksel / Mac'te nokta).
-pub const CERCEVE_ARGB: u32 = 0xFFFF_8C1A;
-pub const CERCEVE_KALINLIK: f32 = 5.0;
-
-/// Karşı tarafın ayarı: "N" ise bağlıyken ekran çerçevesi gösterilmez (varsayılan açık).
-pub const SECENEK_CERCEVE: &str = "altunakar-ekran-cercevesi";
-
 /// Elipsin kaç doğru parçasıyla çizileceği.
 const ELIPS_PARCA: usize = 72;
 
@@ -44,34 +37,9 @@ pub struct Cizim {
     pub ekle: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Cerceve {
-    pub etiket: String,
-}
-
-#[inline]
-pub fn anahtar_cerceve(conn_id: i32) -> String {
-    format!("{}-cerceve", conn_id)
-}
-
 #[inline]
 pub fn anahtar_cizim(conn_id: i32) -> String {
     format!("{}-cizim", conn_id)
-}
-
-/// Çerçevenin üstündeki etiket. Doğrulanmış teknisyen adı ya da bağlananın adı eklenir.
-pub fn cerceve_etiketi(ad: &str) -> String {
-    cerceve_etiketi_onekli("Altunakar Destek bağlı", ad)
-}
-
-/// `onek`: program diline çevrilmiş "Altunakar Destek bağlı".
-pub fn cerceve_etiketi_onekli(onek: &str, ad: &str) -> String {
-    let ad: String = ad.trim().chars().take(40).collect();
-    if ad.is_empty() {
-        onek.to_owned()
-    } else {
-        format!("{} · {}", onek, ad)
-    }
 }
 
 /// Protokoldeki düz diziyi (x0,y0,x1,y1,...) nokta çiftlerine çevirir; tek kalan atılır.
@@ -219,20 +187,6 @@ pub fn sekil_cizgileri(c: &Cizim, kaydir: (f32, f32)) -> Vec<Vec<(f32, f32)>> {
     }
 }
 
-/// Her ekranın kenarına, kalınlığın yarısı kadar içeriden kapalı dikdörtgen.
-/// `ekranlar`: (x, y, genişlik, yükseklik), pencere koordinatında.
-pub fn cerceve_cizgileri(ekranlar: &[(f32, f32, f32, f32)], kalinlik: f32) -> Vec<Vec<(f32, f32)>> {
-    let y = kalinlik / 2.0;
-    ekranlar
-        .iter()
-        .filter(|e| e.2 > kalinlik && e.3 > kalinlik)
-        .map(|&(x, ust, w, h)| {
-            let (x0, y0, x1, y1) = (x + y, ust + y, x + w - y, ust + h - y);
-            vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
-        })
-        .collect()
-}
-
 /// ARGB → (r, g, b, a).
 #[inline]
 pub fn argb_parcala(argb: u32) -> (u8, u8, u8, u8) {
@@ -332,16 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn cerceve_her_ekranin_icinden() {
-        let c = cerceve_cizgileri(&[(0.0, 0.0, 1920.0, 1080.0), (1920.0, 0.0, 1280.0, 1024.0), (0.0, 0.0, 3.0, 3.0)], 6.0);
-        assert_eq!(c.len(), 2, "çok küçük ekran atlanır");
-        assert_eq!(c[0][0], (3.0, 3.0));
-        assert_eq!(c[0][2], (1917.0, 1077.0));
-        assert_eq!(c[1][0], (1923.0, 3.0));
-        assert_eq!(cerceve_etiketi("  Tuna "), "Altunakar Destek bağlı · Tuna");
-        assert_eq!(cerceve_etiketi(""), "Altunakar Destek bağlı");
-        assert_eq!(cerceve_etiketi_onekli("Altunakar Support verbunden", "Tuna"), "Altunakar Support verbunden · Tuna");
-        assert_eq!(anahtar_cerceve(7), "7-cerceve");
+    fn anahtar_ve_renk() {
         assert_eq!(anahtar_cizim(7), "7-cizim");
         assert_eq!(argb_parcala(0x80FF8C1A), (0xFF, 0x8C, 0x1A, 0x80));
     }
